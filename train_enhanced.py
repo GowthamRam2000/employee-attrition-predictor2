@@ -138,12 +138,15 @@ if XGBOOST_AVAILABLE:
         model.save_ensemble('models/')
 
         # Also save the enhanced processor
-        processor.save_preprocessors('models/')
+        processor.save_preprocessors('models/', prefix='enh_')
 
         # Save polynomial transformer
         import joblib
         joblib.dump(poly, 'models/poly_transformer.pkl')
         joblib.dump(top_feature_indices, 'models/top_features.pkl')
+
+        # Save evaluation metrics for dashboard usage
+        joblib.dump(metrics, 'models/enhanced_training_metrics.pkl')
 
     except ImportError:
         print("⚠️ Enhanced model not found, falling back to standard model...")

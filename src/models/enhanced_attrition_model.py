@@ -81,9 +81,7 @@ class EnhancedAttritionPredictor:
         model1.compile(
             optimizer=optimizer,
             loss='binary_crossentropy',
-            metrics=['accuracy', keras.metrics.AUC(name='auc'),
-                     keras.metrics.Precision(name='precision'),
-                     keras.metrics.Recall(name='recall')]
+            metrics=['accuracy', keras.metrics.AUC(name='auc')]
         )
 
         # Model 2: Wider Network

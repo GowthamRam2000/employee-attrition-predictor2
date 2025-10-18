@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="Black">
+    <option name="sdkName" value="employee-attrition-predictor" />
+  </component>
+  <component name="ProjectRootManager" version="2" project-jdk-name="employee-attrition-predictor2" project-jdk-type="Python SDK" />
+</project>

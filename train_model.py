@@ -52,8 +52,10 @@ def main():
         attrition_rate = (df['Attrition'] == 'Yes').mean() * 100
         print(f"  - Attrition Rate: {attrition_rate:.1f}%")
         if attrition_rate < 20:
-            print(f"  ⚠️ Warning: Class imbalance detected (only {attrition_rate:.1f}% attrition). "
-                  "Enhanced model handles this automatically using Focal Loss.")
+            print(
+                f"  ⚠️ Warning: Class imbalance detected (only {attrition_rate:.1f}% attrition). "
+                "Handled via SMOTE (if enabled) or class weights."
+            )
 
     # Preprocess data
     print("\n🔧 Preprocessing data...")
@@ -184,9 +186,9 @@ def main():
     if args.model_version == '2.0':
         print("\n🌟 Enhanced Model Features:")
         print("  - Wide & Deep architecture for better pattern recognition")
-        print("  - Focal Loss for handling class imbalance")
+        print("  - Imbalance handling via SMOTE or class weights")
         print("  - Advanced feature engineering (tenure buckets, income efficiency)")
-        print("  - SHAP-based interpretability for accurate feature importance")
+        print("  - Permutation-based feature importance")
         print("  - Automatic threshold optimization for business needs")
 
 
