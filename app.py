@@ -8,23 +8,18 @@ import os
 import sys
 from typing import Dict, Any, Tuple
 
-# Add src to path
-# Ensure imports resolve consistently regardless of CWD
-# Imports use explicit 'src.' package to avoid clashing with top-level 'models' artifacts folder
 sys.path.append('src')
 
 from src.utils.data_processor import HRDataProcessor
 from src.models.attrition_model import AttritionPredictor
 
-# Page configuration
 st.set_page_config(
     page_title="Employee Retention Analytics",
-    page_icon="📊",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for professional UI
 st.markdown("""
 <style>
     /* Main color scheme - corporate blue and gray */
@@ -169,9 +164,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Helpers
+
 def _ensure_model_loaded() -> Tuple[Any, Any, Any]:
-    """Return (model, processor, feature_names). Try loading from disk if needed."""
     if not st.session_state.get('model_trained'):
         m, p, feats, metrics = load_saved_model()
         if m is not None:
@@ -184,10 +178,9 @@ def _ensure_model_loaded() -> Tuple[Any, Any, Any]:
 
 
 def build_input_df_from_overrides(processor: HRDataProcessor, feature_names, overrides: Dict[str, Any]) -> pd.DataFrame:
-    """Build a single-row DataFrame consistent with training schema using defaults + overrides."""
     base = dict(getattr(processor, 'column_defaults', {}) or {})
     if not base:
-        # Fallback defaults
+
         for col in feature_names or []:
             if col in processor.label_encoders:
                 le = processor.label_encoders[col]
@@ -195,28 +188,23 @@ def build_input_df_from_overrides(processor: HRDataProcessor, feature_names, ove
             else:
                 base[col] = 0
 
-    # Apply overrides only for keys known in training features
     for k, v in overrides.items():
         if feature_names and k in feature_names:
             base[k] = v
 
-    return pd.DataFrame([ {k: base.get(k, None) for k in feature_names} ])
+    return pd.DataFrame([{k: base.get(k, None) for k in feature_names}])
 
 
 def add_enhanced_engineered_features(df: pd.DataFrame, defaults: Dict[str, Any]) -> pd.DataFrame:
-    """Add engineered features used by the enhanced model, approximating train-time transformations.
-    Works for single-row DataFrame or batch DataFrame. Missing source columns fall back to defaults.
-    """
     df = df.copy()
 
     def get(col, series=True):
         if col in df.columns:
             return df[col]
-        # fill with defaults
-        val = defaults.get(col, 0)
-        return pd.Series([val]*len(df)) if series else val
 
-    # Source columns with safe defaults if missing
+        val = defaults.get(col, 0)
+        return pd.Series([val] * len(df)) if series else val
+
     total_work_years = get('TotalWorkingYears')
     num_companies = get('NumCompaniesWorked')
     years_at_company = get('YearsAtCompany')
@@ -230,29 +218,28 @@ def add_enhanced_engineered_features(df: pd.DataFrame, defaults: Dict[str, Any])
     job_involvement = get('JobInvolvement')
     perf_rating = get('PerformanceRating')
     distance = get('DistanceFromHome')
-    overtime = get('OverTime')  # could be str or int
+    overtime = get('OverTime')
     job_level = get('JobLevel')
 
-    # Normalize overtime into 0/1 when strings provided
     ov_series = overtime.apply(lambda x: 1 if str(x).strip().lower() == 'yes' else 0)
 
-    # Engineered features
     df['YearsPerCompany'] = (total_work_years.astype(float)) / (num_companies.astype(float) + 1.0)
     df['YearsWithoutPromotion'] = years_at_company.astype(float) - years_since_promo.astype(float)
     df['AverageWorkingYears'] = (total_work_years.astype(float)) / (age.astype(float).replace(0, 1))
     df['IncomePerYear'] = (monthly_income.astype(float)) / (years_at_company.astype(float) + 1.0)
-    df['SatisfactionScore'] = (job_sat.astype(float) + env_sat.astype(float) + rel_sat.astype(float) + wlb.astype(float)) / 4.0
+    df['SatisfactionScore'] = (job_sat.astype(float) + env_sat.astype(float) + rel_sat.astype(float) + wlb.astype(
+        float)) / 4.0
     df['InvolvementScore'] = job_involvement.astype(float) * perf_rating.astype(float)
-    # AgeGroup via fixed bins
+
     bins = [0, 25, 35, 45, 55, 100]
     labels = [0, 1, 2, 3, 4]
-    df['AgeGroup'] = pd.cut(age.astype(float), bins=bins, labels=labels, include_lowest=True).astype('Int64').fillna(2).astype(int)
-    # IncomeCategory: approximate to mid-category without dataset quantiles
-    # If MonthlyIncome present, approximate bins
+    df['AgeGroup'] = pd.cut(age.astype(float), bins=bins, labels=labels, include_lowest=True).astype('Int64').fillna(
+        2).astype(int)
+
     try:
         inc = monthly_income.astype(float)
-        # crude bins: 0-3k, 3k-5k, 5k-8k, 8k-12k, 12k+
-        cats = pd.cut(inc, bins=[-1, 3000, 5000, 8000, 12000, 1e9], labels=[0,1,2,3,4]).astype('Int64').fillna(2)
+
+        cats = pd.cut(inc, bins=[-1, 3000, 5000, 8000, 12000, 1e9], labels=[0, 1, 2, 3, 4]).astype('Int64').fillna(2)
         df['IncomeCategory'] = cats.astype(int)
     except Exception:
         df['IncomeCategory'] = 2
@@ -260,12 +247,11 @@ def add_enhanced_engineered_features(df: pd.DataFrame, defaults: Dict[str, Any])
     df['CareerProgressionRatio'] = (job_level.astype(float)) / (years_at_company.astype(float) + 1.0)
     df['LoyaltyIndex'] = (years_at_company.astype(float)) / (total_work_years.astype(float).replace(0, 1))
 
-    # Clean infinities / NaNs
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df.fillna(0, inplace=True)
     return df
 
-# Initialize session state
+
 if 'model' not in st.session_state:
     st.session_state.model = None
 if 'processor' not in st.session_state:
@@ -288,73 +274,66 @@ if 'model_choice' not in st.session_state:
     st.session_state.model_choice = 'Baseline'
 
 
-# Try to load existing model on startup
 @st.cache_resource
 def load_saved_model():
-    """Load saved model if it exists"""
     import os
     import joblib
-    model_path = 'models/attrition_model.h5'
+    model_path = os.path.join('models', 'attrition_model.pt')
+    legacy_path = os.path.join('models', 'attrition_model.h5')
 
-    if os.path.exists(model_path):
-        try:
-            from src.models.attrition_model import AttritionPredictor
-            from src.utils.data_processor import HRDataProcessor
+    if not os.path.exists(model_path):
+        if os.path.exists(legacy_path):
+            st.sidebar.warning("Legacy TensorFlow model detected. Retrain to generate PyTorch checkpoints.")
+        return None, None, None, None
 
-            # Load model (baseline)
-            model = AttritionPredictor()
-            model.load_model('models/')
+    try:
+        from src.models.attrition_model import AttritionPredictor
+        from src.utils.data_processor import HRDataProcessor
 
-            # Load any processor available on disk (could be baseline or enhanced depending on last save)
-            # Load baseline processor strictly from baseline files
-            processor_baseline = HRDataProcessor()
-            processor_baseline.load_preprocessors('models/')
+        model = AttritionPredictor()
+        model.load_model('models/')
 
-            # Choose baseline processor as primary processor
-            processor = processor_baseline
+        processor_baseline = HRDataProcessor()
+        processor_baseline.load_preprocessors('models/')
 
-            # Load feature names for baseline
-            feature_names = processor.feature_columns
-            # Load saved training metrics if available
-            metrics_path = os.path.join('models', 'training_metrics.pkl')
-            metrics = None
-            if os.path.exists(metrics_path):
-                try:
-                    metrics = joblib.load(metrics_path)
-                except Exception:
-                    metrics = None
+        processor = processor_baseline
+        feature_names = processor.feature_columns
 
-            # Load enhanced metrics if available
-            enh_metrics_path = os.path.join('models', 'enhanced_training_metrics.pkl')
-            metrics_enh = None
-            if os.path.exists(enh_metrics_path):
-                try:
-                    metrics_enh = joblib.load(enh_metrics_path)
-                except Exception:
-                    metrics_enh = None
+        metrics_path = os.path.join('models', 'training_metrics.pkl')
+        metrics = None
+        if os.path.exists(metrics_path):
+            try:
+                metrics = joblib.load(metrics_path)
+            except Exception:
+                metrics = None
 
-            # Store processors in session for model-specific preprocessing
-            st.session_state.processor_baseline = processor_baseline
-            # Enhanced processor will be loaded via load_enhanced_bundle() with its own files
-            st.session_state.processor_enhanced = st.session_state.get('processor_enhanced')
-            # Store metrics in session
-            st.session_state.metrics_baseline = metrics
-            st.session_state.metrics_enhanced = metrics_enh
+        enh_metrics_path = os.path.join('models', 'enhanced_training_metrics.pkl')
+        metrics_enh = None
+        if os.path.exists(enh_metrics_path):
+            try:
+                metrics_enh = joblib.load(enh_metrics_path)
+            except Exception:
+                metrics_enh = None
 
-            return model, processor, feature_names, metrics
-        except Exception as e:
-            st.sidebar.error(f"Error loading saved model: {str(e)}")
-            return None, None, None, None
+        st.session_state.processor_baseline = processor_baseline
+        st.session_state.processor_enhanced = st.session_state.get('processor_enhanced')
+
+        st.session_state.metrics_baseline = metrics
+        st.session_state.metrics_enhanced = metrics_enh
+
+        return model, processor, feature_names, metrics
+    except Exception as e:
+        st.sidebar.error(f"Error loading saved model: {str(e)}")
+        return None, None, None, None
     return None, None, None, None
 
 
 def load_enhanced_bundle():
-    """Attempt to load enhanced ensemble + poly transformer into session state."""
     import os
     import joblib
     enhanced_needed = [
-        os.path.join('models', 'enhanced_deep_model.h5'),
-        os.path.join('models', 'enhanced_wide_model.h5'),
+        os.path.join('models', 'enhanced_deep_model.pt'),
+        os.path.join('models', 'enhanced_wide_model.pt'),
         os.path.join('models', 'xgboost_model.pkl'),
         os.path.join('models', 'rf_model.pkl'),
         os.path.join('models', 'gb_model.pkl'),
@@ -369,7 +348,6 @@ def load_enhanced_bundle():
         m = EnhancedAttritionPredictor()
         m.load_ensemble('models/')
         st.session_state.enhanced_model = m
-        # Load corresponding (latest) preprocessors for enhanced path
         try:
             p2 = HRDataProcessor()
             p2.load_preprocessors('models/', prefix='enh_')
@@ -384,7 +362,6 @@ def load_enhanced_bundle():
         return False
 
 
-# Load saved model on startup
 if not st.session_state.model_trained:
     model, processor, feature_names, metrics = load_saved_model()
     if model is not None:
@@ -393,19 +370,17 @@ if not st.session_state.model_trained:
         st.session_state.model_trained = True
         st.session_state.training_metrics = metrics
         st.session_state.feature_names = feature_names
-        st.sidebar.success("✅ Model loaded from disk!")
+        st.sidebar.success(" Model loaded from disk!")
 
-# Header
 st.markdown("""
 <div class="main-header">
-    <h1>🏢 Employee Retention Analytics Platform</h1>
+    <h1> Employee Retention Analytics Platform</h1>
     <p>Advanced Deep Learning System for Predicting Employee Attrition</p>
 </div>
 """, unsafe_allow_html=True)
 
-# Sidebar
 with st.sidebar:
-    st.markdown("### 🎯 Navigation")
+    st.markdown("###  Navigation")
     page = st.radio(
         "Navigation",
         ["Dashboard", "Train Model", "Make Predictions", "Batch Scoring", "Analytics", "Model Performance"],
@@ -413,14 +388,14 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    st.markdown("### 📁 Quick Actions")
-    # Download the repository sample dataset
+    st.markdown("###  Quick Actions")
+
     sample_path = 'WA_Fn-UseC_-HR-Employee-Attrition.csv'
     if os.path.exists(sample_path):
         try:
             with open(sample_path, 'rb') as f:
                 st.download_button(
-                    "📥 Download Sample Data (IBM HR CSV)",
+                    " Download Sample Data (IBM HR CSV)",
                     data=f.read(),
                     file_name=os.path.basename(sample_path),
                     mime='text/csv'
@@ -430,8 +405,7 @@ with st.sidebar:
     else:
         st.caption("Sample CSV not found in repo root.")
 
-    # Load sample data into session for immediate use
-    if st.button("📂 Use Built-in Sample Data"):
+    if st.button(" Use Built-in Sample Data"):
         try:
             proc = HRDataProcessor()
             df0 = proc.load_data(sample_path)
@@ -440,8 +414,7 @@ with st.sidebar:
         except Exception as e:
             st.warning(f"Could not load sample data: {str(e)}")
 
-    # Generate a quick, data-only report (no model needed)
-    if st.button("📊 Generate Report"):
+    if st.button(" Generate Report"):
         try:
             if 'sample_df' in st.session_state:
                 df_rep = st.session_state.sample_df
@@ -454,13 +427,16 @@ with st.sidebar:
             if df_rep is None:
                 st.info("Please upload or load the sample dataset first.")
             else:
-                # Compute quick stats
+
                 stats = {
                     'rows': int(len(df_rep)),
                     'cols': int(len(df_rep.columns)),
-                    'attrition_rate': float((df_rep['Attrition'].eq('Yes')).mean()*100) if 'Attrition' in df_rep.columns else None,
-                    'top_departments': df_rep['Department'].value_counts().head(3).to_dict() if 'Department' in df_rep.columns else {},
-                    'overtime_share': float((df_rep['OverTime'].eq('Yes')).mean()*100) if 'OverTime' in df_rep.columns else None,
+                    'attrition_rate': float(
+                        (df_rep['Attrition'].eq('Yes')).mean() * 100) if 'Attrition' in df_rep.columns else None,
+                    'top_departments': df_rep['Department'].value_counts().head(
+                        3).to_dict() if 'Department' in df_rep.columns else {},
+                    'overtime_share': float(
+                        (df_rep['OverTime'].eq('Yes')).mean() * 100) if 'OverTime' in df_rep.columns else None,
                 }
                 st.session_state.quick_stats = stats
                 st.success("Quick report generated. See Analytics page for details.")
@@ -468,8 +444,8 @@ with st.sidebar:
             st.warning(f"Could not generate report: {str(e)}")
 
     st.markdown("---")
-    st.markdown("### 🧠 Model Selector")
-    # Detect if enhanced is available
+    st.markdown("###  Model Selector")
+
     enhanced_available = load_enhanced_bundle()
     model_options = ["Baseline"] + (["Enhanced"] if enhanced_available else [])
     st.session_state.model_choice = st.selectbox("Active Model", model_options, index=0)
@@ -478,26 +454,24 @@ with st.sidebar:
         st.caption("Enhanced = Wide & Deep + Tree Ensemble (if trained)")
 
     st.markdown("---")
-    st.markdown("### ℹ️ About")
+    st.markdown("### ℹ About")
     st.markdown("""
-    This platform uses deep learning to predict employee attrition risk, 
+    This platform uses deep learning to predict employee attrition risk,
     helping HR teams make data-driven retention decisions.
     Developed as part of Deep Learning Coursework in winter term at IIT Jodhpur
     Created by Gowtham Ram M24DE3036
     Saravanan GS m24de3070
     Rajendra Panda m24de3091
     Geetika Vijay m24de3035
-    **Version:** 1.0.0  
+    **Version:** 1.0.0
     **Last Updated:** 2025
     """)
 
-# Main content based on selected page
 if page == "Dashboard":
-    st.markdown("## 📊 Executive Dashboard")
+    st.markdown("##  Executive Dashboard")
 
-    # Check if model is trained
     if st.session_state.model_trained:
-        # Pick metrics based on selected model
+
         model_choice = st.session_state.get('model_choice', 'Baseline')
         metrics = None
         if model_choice == 'Enhanced':
@@ -508,7 +482,7 @@ if page == "Dashboard":
         if not metrics:
             st.info("No saved metrics found. Use Batch Scoring with labeled data or retrain to populate metrics.")
         else:
-            # Display key metrics
+
             col1, col2, col3, col4 = st.columns(4)
 
             with col1:
@@ -543,7 +517,6 @@ if page == "Dashboard":
                 </div>
                 """.format(metrics['classification_report']['1']['recall'] * 100), unsafe_allow_html=True)
 
-            # ROC Curve
             st.markdown("### 📈 Model Performance Visualization")
 
             col1, col2 = st.columns(2)
@@ -578,7 +551,7 @@ if page == "Dashboard":
                     st.info("ROC data not available. Train a model in this session to view ROC.")
 
             with col2:
-                # Confusion Matrix
+
                 cm = metrics['confusion_matrix']
                 fig_cm = go.Figure(data=go.Heatmap(
                     z=cm,
@@ -597,7 +570,7 @@ if page == "Dashboard":
                 )
                 st.plotly_chart(fig_cm, use_container_width=True)
     else:
-        st.info("👋 Welcome! Please train a model first to see the dashboard metrics.")
+        st.info(" Welcome! Please train a model first to see the dashboard metrics.")
         st.markdown("""
         <div class="info-box">
             <h4>Getting Started:</h4>
@@ -611,9 +584,8 @@ if page == "Dashboard":
         """, unsafe_allow_html=True)
 
 elif page == "Train Model":
-    st.markdown("## 🚀 Model Training")
+    st.markdown("##  Model Training")
 
-    # File upload
     uploaded_file = st.file_uploader(
         "Upload IBM HR Analytics Dataset",
         type=['csv', 'xlsx', 'xls'],
@@ -622,29 +594,27 @@ elif page == "Train Model":
     use_session_sample = False
     df = None
     if uploaded_file is not None:
-        # Load from upload
+
         processor = HRDataProcessor()
         df = processor.load_data(uploaded_file)
         use_session_sample = False
     elif 'sample_df' in st.session_state:
-        # Fall back to loaded sample data
+
         processor = HRDataProcessor()
         df = st.session_state.sample_df
         use_session_sample = True
 
     if df is not None:
-        # Load and display data
-        st.success(f"✅ Dataset loaded successfully! Shape: {df.shape}")
 
-        # Display data preview
+        st.success(f" Dataset loaded successfully! Shape: {df.shape}")
+
         with st.expander("📋 Data Preview"):
             st.dataframe(df.head())
 
-        # Display basic statistics
         col1, col2 = st.columns(2)
 
         with col1:
-            st.markdown("### 📊 Dataset Statistics")
+            st.markdown("  Dataset Statistics")
             st.markdown(f"- **Total Employees:** {len(df)}")
             st.markdown(f"- **Features:** {len(df.columns)}")
             if 'Attrition' in df.columns:
@@ -652,26 +622,23 @@ elif page == "Train Model":
                 st.markdown(f"- **Attrition Rate:** {attrition_rate:.1f}%")
 
         with col2:
-            st.markdown("### 🔧 Training Configuration")
+            st.markdown("  Training Configuration")
             epochs = st.slider("Number of Epochs", 50, 200, 100)
             batch_size = st.select_slider("Batch Size", [16, 32, 64, 128], value=32)
             use_smote = st.checkbox("Use SMOTE for Imbalanced Data", value=True)
 
-        # Train model button
-        btn_label = "🎯 Train Model (Sample)" if use_session_sample and uploaded_file is None else "🎯 Train Model"
+        btn_label = " Train Model (Sample)" if use_session_sample and uploaded_file is None else "🎯 Train Model"
         if st.button(btn_label, type="primary"):
-            with st.spinner("🔄 Training deep learning model... This may take a few minutes."):
-                # Preprocess data
+            with st.spinner(" Training deep learning model... This may take a few minutes."):
+
                 X, y, feature_names = processor.preprocess_data(df, is_training=True)
 
-                # Split data
                 from sklearn.model_selection import train_test_split
 
                 X_train, X_test, y_train, y_test = train_test_split(
                     X, y, test_size=0.2, random_state=42, stratify=y
                 )
 
-                # Train model
                 model = AttritionPredictor()
                 history = model.train(
                     X_train, y_train,
@@ -680,10 +647,8 @@ elif page == "Train Model":
                     use_smote=use_smote
                 )
 
-                # Evaluate model
                 metrics = model.evaluate(X_test, y_test)
 
-                # Store in session state
                 st.session_state.model = model
                 st.session_state.processor = processor
                 st.session_state.model_trained = True
@@ -691,13 +656,11 @@ elif page == "Train Model":
                 st.session_state.metrics_baseline = metrics
                 st.session_state.feature_names = feature_names
 
-                # Save model and preprocessors
                 model.save_model('models/')
                 processor.save_preprocessors('models/')
 
-                st.success("✅ Model trained successfully!")
+                st.success(" Model trained successfully!")
 
-                # Display training results
                 st.markdown("### 📊 Training Results")
 
                 col1, col2, col3 = st.columns(3)
@@ -708,7 +671,6 @@ elif page == "Train Model":
                 with col3:
                     st.metric("F1 Score", f"{metrics['classification_report']['1']['f1-score']:.3f}")
 
-                # Plot training history
                 if history:
                     fig_history = go.Figure()
                     fig_history.add_trace(go.Scatter(
@@ -733,14 +695,13 @@ elif page == "Train Model":
                     st.plotly_chart(fig_history, use_container_width=True)
 
 elif page == "Make Predictions":
-    st.markdown("## 🎯 Attrition Risk Prediction")
+    st.markdown("##  Attrition Risk Prediction")
 
     if not st.session_state.model_trained:
-        st.warning("⚠️ Please train a model first before making predictions.")
+        st.warning(" Please train a model first before making predictions.")
     else:
         st.markdown("### Enter Employee Information")
 
-        # Create input form
         with st.form("prediction_form"):
             col1, col2, col3 = st.columns(3)
 
@@ -763,7 +724,6 @@ elif page == "Make Predictions":
                 education = st.selectbox("Education Level",
                                          ["Below College", "College", "Bachelor", "Master", "Doctor"])
 
-            # Additional fields
             col1, col2 = st.columns(2)
 
             with col1:
@@ -779,8 +739,7 @@ elif page == "Make Predictions":
 
         if submit_button:
             try:
-                # Build a full input row using saved defaults and override with form inputs
-                # Select processor based on active model
+
                 model_choice = st.session_state.get('model_choice', 'Baseline')
                 if model_choice == 'Enhanced' and st.session_state.get('processor_enhanced') is not None:
                     processor = st.session_state.processor_enhanced
@@ -788,7 +747,6 @@ elif page == "Make Predictions":
                     processor = st.session_state.processor_baseline or st.session_state.processor
                 feature_names = processor.feature_columns
 
-                # Start with defaults if available; else fallback from label encoders/zeros
                 base = dict(processor.column_defaults) if getattr(processor, 'column_defaults', None) else {}
                 if not base:
                     base = {}
@@ -799,12 +757,10 @@ elif page == "Make Predictions":
                         else:
                             base[col] = 0
 
-                # Map education label to dataset numeric scale
                 edu_map = {
                     "Below College": 1, "College": 2, "Bachelor": 3, "Master": 4, "Doctor": 5
                 }
 
-                # Override with form entries (matching IBM dataset column names)
                 overrides = {
                     'Age': age,
                     'MonthlyIncome': monthly_income,
@@ -824,28 +780,25 @@ elif page == "Make Predictions":
                     'YearsWithCurrManager': years_with_curr_manager,
                 }
 
-                # Keep only features used by the model; add overrides intersecting features
                 input_row = {k: base.get(k, overrides.get(k)) for k in feature_names}
                 for k, v in overrides.items():
                     if k in feature_names:
                         input_row[k] = v
 
-                # Build dataframe for preprocessing
                 input_df = pd.DataFrame([input_row])
 
-                # If using enhanced model, add engineered features to align with training
                 if model_choice == 'Enhanced' and st.session_state.get('processor_enhanced') is not None:
-                    input_df = add_enhanced_engineered_features(input_df, getattr(processor, 'column_defaults', {}) or {})
+                    input_df = add_enhanced_engineered_features(input_df,
+                                                                getattr(processor, 'column_defaults', {}) or {})
 
-                # Preprocess with the chosen processor's transformers
                 X_input, _, _ = processor.preprocess_data(input_df, is_training=False)
 
-                # Predict probability with selected model
                 proba = None
                 if model_choice == 'Enhanced' and st.session_state.get('enhanced_model') is not None:
-                    # Build enhanced features: concat poly(top features)
+
                     try:
                         import numpy as np
+
                         poly = st.session_state.poly_transformer
                         idx = st.session_state.top_features
                         X_top = X_input[:, idx]
@@ -857,15 +810,14 @@ elif page == "Make Predictions":
                 if proba is None:
                     proba = float(st.session_state.model.predict_proba(X_input).flatten()[0])
 
-                # Display prediction
                 st.markdown("### 🎯 Prediction Result")
 
                 if proba < 0.3:
                     st.markdown(
                         f"""
                         <div class="prediction-card low-risk">
-                            <h2>✅ Low Attrition Risk</h2>
-                            <h3>Risk Score: {proba*100:.1f}%</h3>
+                            <h2> Low Attrition Risk</h2>
+                            <h3>Risk Score: {proba * 100:.1f}%</h3>
                             <p>This employee shows strong retention indicators.</p>
                         </div>
                         """,
@@ -875,8 +827,8 @@ elif page == "Make Predictions":
                     st.markdown(
                         f"""
                         <div class="prediction-card medium-risk">
-                            <h2>⚠️ Medium Attrition Risk</h2>
-                            <h3>Risk Score: {proba*100:.1f}%</h3>
+                            <h2>️ Medium Attrition Risk</h2>
+                            <h3>Risk Score: {proba * 100:.1f}%</h3>
                             <p>Monitor this employee and consider retention strategies.</p>
                         </div>
                         """,
@@ -886,16 +838,15 @@ elif page == "Make Predictions":
                     st.markdown(
                         f"""
                         <div class="prediction-card high-risk">
-                            <h2>🚨 High Attrition Risk</h2>
-                            <h3>Risk Score: {proba*100:.1f}%</h3>
+                            <h2> High Attrition Risk</h2>
+                            <h3>Risk Score: {proba * 100:.1f}%</h3>
                             <p>Immediate intervention recommended.</p>
                         </div>
                         """,
                         unsafe_allow_html=True,
                     )
 
-                # Recommendations
-                st.markdown("### 💡 Recommended Actions")
+                st.markdown("### Recommended Actions")
                 if proba > 0.5:
                     st.markdown(
                         """
@@ -908,8 +859,7 @@ elif page == "Make Predictions":
                     )
                 st.caption(f"Exact probability: {proba:.4f}")
 
-                # What-If Analysis
-                with st.expander("🔎 What‑If Analysis and Local Sensitivity"):
+                with st.expander(" What‑If Analysis and Local Sensitivity"):
                     st.markdown("Adjust key features to see impact on risk.")
 
                     w_col1, w_col2, w_col3 = st.columns(3)
@@ -918,10 +868,12 @@ elif page == "Make Predictions":
                         wi_years_at_company = st.number_input("What‑If Years at Company", 0, 40, int(years_at_company))
                     with w_col2:
                         wi_distance = st.number_input("What‑If Distance From Home", 1, 30, int(distance_from_home))
-                        wi_wlb = st.select_slider("What‑If Work Life Balance", [1, 2, 3, 4], value=int(work_life_balance))
+                        wi_wlb = st.select_slider("What‑If Work Life Balance", [1, 2, 3, 4],
+                                                  value=int(work_life_balance))
                     with w_col3:
                         wi_js = st.select_slider("What‑If Job Satisfaction", [1, 2, 3, 4], value=int(job_satisfaction))
-                        wi_overtime = st.selectbox("What‑If Overtime", ["No", "Yes"], index=0 if overtime=="No" else 1)
+                        wi_overtime = st.selectbox("What‑If Overtime", ["No", "Yes"],
+                                                   index=0 if overtime == "No" else 1)
 
                     if st.button("Recompute What‑If Risk"):
                         wi_overrides = {
@@ -947,13 +899,13 @@ elif page == "Make Predictions":
                         wi_proba = float(st.session_state.model.predict_proba(X_wi).flatten()[0])
 
                         delta = wi_proba - proba
-                        st.write(f"New Risk: {wi_proba*100:.1f}%  (Δ {delta*100:+.1f} pp)")
+                        st.write(f"New Risk: {wi_proba * 100:.1f}%  (Δ {delta * 100:+.1f} pp)")
 
-                        # Local sensitivity: perturb selected features
                         import numpy as np
                         import plotly.graph_objects as go
+
                         sensitivity = []
-                        # Numeric features +/-10%
+
                         num_feats = {
                             'MonthlyIncome': wi_monthly_income,
                             'YearsAtCompany': wi_years_at_company,
@@ -962,8 +914,8 @@ elif page == "Make Predictions":
                             'JobSatisfaction': wi_js,
                         }
                         for f, val in num_feats.items():
-                            val_up = val * 1.1 if f in ['MonthlyIncome'] else min(val+1, 40)
-                            val_dn = val * 0.9 if f in ['MonthlyIncome'] else max(val-1, 0)
+                            val_up = val * 1.1 if f in ['MonthlyIncome'] else min(val + 1, 40)
+                            val_dn = val * 0.9 if f in ['MonthlyIncome'] else max(val - 1, 0)
                             for new_val in [val_up, val_dn]:
                                 tmp = dict(wi_overrides)
                                 tmp[f] = new_val
@@ -971,7 +923,7 @@ elif page == "Make Predictions":
                                 X_tmp, _, _ = processor.preprocess_data(tmp_df, is_training=False)
                                 p_tmp = float(st.session_state.model.predict_proba(X_tmp).flatten()[0])
                                 sensitivity.append((f, abs(p_tmp - wi_proba)))
-                        # Categorical toggle for OverTime
+
                         tmp = dict(wi_overrides)
                         tmp['OverTime'] = 'No' if wi_overtime == 'Yes' else 'Yes'
                         tmp_df = build_input_df_from_overrides(processor, feature_names, tmp)
@@ -979,23 +931,25 @@ elif page == "Make Predictions":
                         p_tmp = float(st.session_state.model.predict_proba(X_tmp).flatten()[0])
                         sensitivity.append(('OverTime', abs(p_tmp - wi_proba)))
 
-                        # Aggregate max change per feature
                         agg = {}
                         for k, v in sensitivity:
                             agg[k] = max(agg.get(k, 0), v)
                         items = sorted(agg.items(), key=lambda x: x[1], reverse=True)[:6]
                         if items:
-                            fig = go.Figure(data=[go.Bar(x=[i[1] for i in items], y=[i[0] for i in items], orientation='h')])
-                            fig.update_layout(title="Local Sensitivity (Δ probability)", xaxis_title="Δ", height=300, template='plotly_white')
+                            fig = go.Figure(
+                                data=[go.Bar(x=[i[1] for i in items], y=[i[0] for i in items], orientation='h')])
+                            fig.update_layout(title="Local Sensitivity (Δ probability)", xaxis_title="Δ", height=300,
+                                              template='plotly_white')
                             st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
                 st.error(f"Prediction failed: {str(e)}")
 
 elif page == "Batch Scoring":
-    st.markdown("## 📦 Batch Scoring")
+    st.markdown(" Batch Scoring")
 
     model, _, _ = _ensure_model_loaded()
-    has_processor = (st.session_state.get('processor_baseline') is not None) or (st.session_state.get('processor_enhanced') is not None)
+    has_processor = (st.session_state.get('processor_baseline') is not None) or (
+                st.session_state.get('processor_enhanced') is not None)
     if not model or not has_processor:
         st.warning("Model not loaded. Train a model or ensure models/ artifacts exist.")
     else:
@@ -1014,7 +968,7 @@ elif page == "Batch Scoring":
             cost_fp = st.number_input("Cost of False Positive", min_value=0, max_value=1000000, value=200)
 
         if uploaded is not None:
-            # Pick processor for selected model
+
             model_choice = st.session_state.get('model_choice', 'Baseline')
             if model_choice == 'Enhanced' and st.session_state.get('processor_enhanced') is not None:
                 processor = st.session_state.processor_enhanced
@@ -1022,22 +976,20 @@ elif page == "Batch Scoring":
                 processor = st.session_state.processor_baseline or st.session_state.processor
 
             df_in = processor.load_data(uploaded)
-            # If using enhanced model, add engineered features to align with training
+
             if model_choice == 'Enhanced' and st.session_state.get('processor_enhanced') is not None:
                 df_in = add_enhanced_engineered_features(df_in, getattr(processor, 'column_defaults', {}) or {})
             st.success(f"Loaded file. Rows: {len(df_in)}, Columns: {len(df_in.columns)}")
 
-            # Keep copy for output
             df_out = df_in.copy()
 
-            # Preprocess and score
             Xb, yb, _ = processor.preprocess_data(df_in, is_training=False)
 
-            # Use selected model (baseline or enhanced)
             model_choice = st.session_state.get('model_choice', 'Baseline')
             if model_choice == 'Enhanced' and st.session_state.get('enhanced_model') is not None:
                 try:
                     import numpy as np
+
                     poly = st.session_state.poly_transformer
                     idx = st.session_state.top_features
                     X_top = Xb[:, idx]
@@ -1051,20 +1003,20 @@ elif page == "Batch Scoring":
                 proba = model.predict_proba(Xb).flatten()
 
             import numpy as np
+
             preds = (proba > thresh).astype(int)
             df_out['AttritionRisk'] = proba
             df_out['PredictedAttrition'] = preds
             bands = np.where(proba < 0.3, 'Low', np.where(proba < 0.7, 'Medium', 'High'))
             df_out['RiskBand'] = bands
 
-            # Risk Distribution
-            st.markdown("### 📊 Risk Distribution")
+            st.markdown("###  Risk Distribution")
             import plotly.express as px
+
             hist = px.histogram(x=proba, nbins=30, labels={'x': 'Attrition Risk'}, title='Risk Score Histogram')
             hist.update_layout(template='plotly_white', height=350)
             st.plotly_chart(hist, use_container_width=True)
 
-            # Cohort summary
             st.markdown("### 👥 Cohort Summary (Mean Risk)")
             candidates = ['Department', 'JobRole', 'OverTime', 'MaritalStatus']
             group_col = next((c for c in candidates if c in df_out.columns), None)
@@ -1076,7 +1028,6 @@ elif page == "Batch Scoring":
             else:
                 st.info("No standard cohort column found (Department/JobRole/OverTime/MaritalStatus).")
 
-            # Evaluation if labels present
             y_true = None
             if 'Attrition' in df_in.columns:
                 ser = df_in['Attrition']
@@ -1089,7 +1040,9 @@ elif page == "Batch Scoring":
                         y_true = None
 
             if y_true is not None:
-                from sklearn.metrics import confusion_matrix, roc_auc_score, precision_score, recall_score, f1_score, accuracy_score, brier_score_loss
+                from sklearn.metrics import confusion_matrix, roc_auc_score, precision_score, recall_score, f1_score, \
+                    accuracy_score, brier_score_loss
+
                 cm = confusion_matrix(y_true, preds)
                 tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, 0)
                 try:
@@ -1111,20 +1064,26 @@ elif page == "Batch Scoring":
                 c5.metric("F1", f"{f1:.3f}")
                 st.write(f"Estimated Business Cost: {total_cost:,.0f}")
 
-                # Calibration / Reliability diagram
                 from sklearn.calibration import calibration_curve
+
                 try:
                     frac_pos, mean_pred = calibration_curve(y_true, proba, n_bins=10, strategy='quantile')
                     import plotly.graph_objects as go
+
                     fig_cal = go.Figure()
-                    fig_cal.add_trace(go.Scatter(x=[0,1], y=[0,1], mode='lines', name='Perfectly Calibrated', line=dict(color='gray', dash='dash')))
-                    fig_cal.add_trace(go.Scatter(x=mean_pred, y=frac_pos, mode='lines+markers', name='Model', line=dict(color='#1e3a5f')))
-                    fig_cal.update_layout(title=f"Calibration Curve (Brier: {brier:.3f})", xaxis_title='Mean Predicted Value', yaxis_title='Fraction of Positives', template='plotly_white', height=350)
+                    fig_cal.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='Perfectly Calibrated',
+                                                 line=dict(color='gray', dash='dash')))
+                    fig_cal.add_trace(go.Scatter(x=mean_pred, y=frac_pos, mode='lines+markers', name='Model',
+                                                 line=dict(color='#1e3a5f')))
+                    fig_cal.update_layout(title=f"Calibration Curve (Brier: {brier:.3f})",
+                                          xaxis_title='Mean Predicted Value', yaxis_title='Fraction of Positives',
+                                          template='plotly_white', height=350)
                     st.plotly_chart(fig_cal, use_container_width=True)
                 except Exception as e:
                     st.info(f"Calibration plot unavailable: {str(e)}")
 
                 import plotly.graph_objects as go
+
                 fig_cm = go.Figure(data=go.Heatmap(
                     z=cm,
                     x=['Pred Stay', 'Pred Leave'],
@@ -1152,18 +1111,16 @@ elif page == "Batch Scoring":
             else:
                 st.info("No ground truth (Attrition) column found; showing predictions only.")
 
-            # Download results
-            st.markdown("### ⬇️ Download Scored Results")
+            st.markdown("### Download Scored Results")
             csv_bytes = df_out.to_csv(index=False).encode('utf-8')
             st.download_button("Download CSV", data=csv_bytes, file_name="scored_results.csv", mime="text/csv")
 
 elif page == "Analytics":
-    st.markdown("## 📈 HR Analytics & Insights")
+    st.markdown("##  HR Analytics & Insights")
 
-    # Quick data report if available
     if 'quick_stats' in st.session_state:
         qs = st.session_state.quick_stats
-        st.markdown("### 🗂️ Dataset Overview")
+        st.markdown("###  Dataset Overview")
         c1, c2, c3 = st.columns(3)
         c1.metric("Rows", f"{qs.get('rows', 0)}")
         c2.metric("Columns", f"{qs.get('cols', 0)}")
@@ -1177,10 +1134,9 @@ elif page == "Analytics":
             st.caption(f"OverTime share: {qs['overtime_share']:.1f}%")
 
     if st.session_state.model_trained:
-        # Feature importance would go here
-        st.markdown("### 🎯 Key Factors Influencing Attrition")
 
-        # Create sample feature importance data
+        st.markdown("###  Key Factors Influencing Attrition")
+
         features = ['Overtime', 'Monthly Income', 'Years at Company', 'Job Satisfaction',
                     'Work Life Balance', 'Age', 'Distance From Home', 'Environment Satisfaction']
         importance = [0.18, 0.15, 0.12, 0.11, 0.10, 0.09, 0.08, 0.07]
@@ -1203,10 +1159,10 @@ elif page == "Analytics":
         st.plotly_chart(fig, use_container_width=True)
 
     else:
-        st.info("📊 Train a model first to see analytics and insights.")
+        st.info(" Train a model first to see analytics and insights.")
 
 elif page == "Model Performance":
-    st.markdown("## 🎯 Model Performance Metrics")
+    st.markdown("##  Model Performance Metrics")
 
     if st.session_state.model_trained:
         model_choice = st.session_state.get('model_choice', 'Baseline')
@@ -1219,12 +1175,10 @@ elif page == "Model Performance":
             st.info("No saved metrics found. Use Batch Scoring with labeled data or retrain to populate metrics.")
         else:
 
-            # Detailed metrics
-            st.markdown("### 📊 Classification Report")
+            st.markdown("###  Classification Report")
 
             report = metrics['classification_report']
 
-            # Create metrics dataframe
             metrics_df = pd.DataFrame({
                 'Class': ['Stay (0)', 'Leave (1)'],
                 'Precision': [report['0']['precision'], report['1']['precision']],
@@ -1240,8 +1194,7 @@ elif page == "Model Performance":
                 'Support': '{:.0f}'
             }))
 
-            # Overall metrics
-            st.markdown("### 📈 Overall Performance")
+            st.markdown("###  Overall Performance")
             col1, col2, col3, col4 = st.columns(4)
 
             with col1:
@@ -1254,9 +1207,8 @@ elif page == "Model Performance":
                 st.metric("Weighted Avg F1", f"{report['weighted avg']['f1-score']:.3f}")
 
     else:
-        st.info("📊 Train a model first to see performance metrics.")
+        st.info(" Train a model first to see performance metrics.")
 
-# Footer
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #666; padding: 1rem;'>
