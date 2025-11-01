@@ -6,9 +6,12 @@ import plotly.express as px
 from datetime import datetime
 import os
 import sys
+from pathlib import Path
 from typing import Dict, Any, Tuple
 
 sys.path.append('src')
+
+MODELS_DIR = Path(os.environ.get("ATTRITION_MODELS_DIR", "models")).resolve()
 
 from src.utils.data_processor import HRDataProcessor
 from src.models.attrition_model import AttritionPredictor
@@ -278,11 +281,11 @@ if 'model_choice' not in st.session_state:
 def load_saved_model():
     import os
     import joblib
-    model_path = os.path.join('models', 'attrition_model.pt')
-    legacy_path = os.path.join('models', 'attrition_model.h5')
+    model_path = MODELS_DIR / 'attrition_model.pt'
+    legacy_path = MODELS_DIR / 'attrition_model.h5'
 
-    if not os.path.exists(model_path):
-        if os.path.exists(legacy_path):
+    if not model_path.exists():
+        if legacy_path.exists():
             st.sidebar.warning("Legacy TensorFlow model detected. Retrain to generate PyTorch checkpoints.")
         return None, None, None, None
 
@@ -291,25 +294,25 @@ def load_saved_model():
         from src.utils.data_processor import HRDataProcessor
 
         model = AttritionPredictor()
-        model.load_model('models/')
+        model.load_model(str(MODELS_DIR))
 
         processor_baseline = HRDataProcessor()
-        processor_baseline.load_preprocessors('models/')
+        processor_baseline.load_preprocessors(str(MODELS_DIR))
 
         processor = processor_baseline
         feature_names = processor.feature_columns
 
-        metrics_path = os.path.join('models', 'training_metrics.pkl')
+        metrics_path = MODELS_DIR / 'training_metrics.pkl'
         metrics = None
-        if os.path.exists(metrics_path):
+        if metrics_path.exists():
             try:
                 metrics = joblib.load(metrics_path)
             except Exception:
                 metrics = None
 
-        enh_metrics_path = os.path.join('models', 'enhanced_training_metrics.pkl')
+        enh_metrics_path = MODELS_DIR / 'enhanced_training_metrics.pkl'
         metrics_enh = None
-        if os.path.exists(enh_metrics_path):
+        if enh_metrics_path.exists():
             try:
                 metrics_enh = joblib.load(enh_metrics_path)
             except Exception:
@@ -332,30 +335,30 @@ def load_enhanced_bundle():
     import os
     import joblib
     enhanced_needed = [
-        os.path.join('models', 'enhanced_deep_model.pt'),
-        os.path.join('models', 'enhanced_wide_model.pt'),
-        os.path.join('models', 'xgboost_model.pkl'),
-        os.path.join('models', 'rf_model.pkl'),
-        os.path.join('models', 'gb_model.pkl'),
-        os.path.join('models', 'enhanced_metadata.pkl'),
-        os.path.join('models', 'poly_transformer.pkl'),
-        os.path.join('models', 'top_features.pkl'),
+        MODELS_DIR / 'enhanced_deep_model.pt',
+        MODELS_DIR / 'enhanced_wide_model.pt',
+        MODELS_DIR / 'xgboost_model.pkl',
+        MODELS_DIR / 'rf_model.pkl',
+        MODELS_DIR / 'gb_model.pkl',
+        MODELS_DIR / 'enhanced_metadata.pkl',
+        MODELS_DIR / 'poly_transformer.pkl',
+        MODELS_DIR / 'top_features.pkl',
     ]
-    if not all(os.path.exists(p) for p in enhanced_needed):
+    if not all(p.exists() for p in enhanced_needed):
         return False
     try:
         from src.models.enhanced_attrition_model import EnhancedAttritionPredictor
         m = EnhancedAttritionPredictor()
-        m.load_ensemble('models/')
+        m.load_ensemble(str(MODELS_DIR))
         st.session_state.enhanced_model = m
         try:
             p2 = HRDataProcessor()
-            p2.load_preprocessors('models/', prefix='enh_')
+            p2.load_preprocessors(str(MODELS_DIR), prefix='enh_')
             st.session_state.processor_enhanced = st.session_state.get('processor_enhanced') or p2
         except Exception:
             pass
-        st.session_state.poly_transformer = joblib.load(os.path.join('models', 'poly_transformer.pkl'))
-        st.session_state.top_features = joblib.load(os.path.join('models', 'top_features.pkl'))
+        st.session_state.poly_transformer = joblib.load(MODELS_DIR / 'poly_transformer.pkl')
+        st.session_state.top_features = joblib.load(MODELS_DIR / 'top_features.pkl')
         return True
     except Exception as e:
         st.sidebar.warning(f"Enhanced model not loaded: {str(e)}")
@@ -659,8 +662,9 @@ elif page == "Train Model":
                 st.session_state.metrics_baseline = metrics
                 st.session_state.feature_names = feature_names
 
-                model.save_model('models/')
-                processor.save_preprocessors('models/')
+                os.makedirs(MODELS_DIR, exist_ok=True)
+                model.save_model(str(MODELS_DIR))
+                processor.save_preprocessors(str(MODELS_DIR))
 
                 st.success(" Model trained successfully!")
 

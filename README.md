@@ -35,6 +35,7 @@ This command first trains the baseline PyTorch network and, when `--model_versio
 - Enhanced (2.0): `enhanced_deep_model.pt`, `enhanced_wide_model.pt`, `xgboost_model.pkl`, `rf_model.pkl`, `gb_model.pkl`, `enhanced_metadata.pkl`, `enhanced_training_metrics.pkl`, `poly_transformer.pkl`, `top_features.pkl`
 
 > Re-run the CLI whenever you refresh data or hyperparameters; the Streamlit app automatically loads the freshest artifacts at startup.
+> Set `ATTRITION_MODELS_DIR=/path/to/models` if you keep artifacts outside the project root.
 
 ---
 
