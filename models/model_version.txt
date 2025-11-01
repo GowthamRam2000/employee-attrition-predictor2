@@ -1,4 +1,6 @@
 Model Version: 2.0
-Training Date: 2025-10-30 16:39:20.153118
-Accuracy: 0.837
-AUC: 0.765
+Training Date: 2025-11-01 18:49:48.895187
+Accuracy: 0.850
+AUC: 0.832
+Enhanced Accuracy: 0.874
+Enhanced AUC: 0.780

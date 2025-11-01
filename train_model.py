@@ -3,7 +3,8 @@ import os
 import argparse
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split, StratifiedKFold
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import PolynomialFeatures
 import warnings
 import joblib
 import traceback
@@ -20,6 +21,70 @@ except ImportError:
     from src.utils.data_processor import HRDataProcessor
     from src.models.attrition_model import AttritionPredictor
 
+from src.utils.feature_engineering import apply_enhanced_feature_engineering
+
+
+def train_enhanced_pipeline(df, *, epochs, batch_size, save_path):
+    from src.models.enhanced_attrition_model import EnhancedAttritionPredictor
+
+    print("\n" + "=" * 60)
+    print("ENHANCED MODEL TRAINING")
+    print("=" * 60)
+
+    processor_enh = HRDataProcessor()
+
+    print("\n🔧 Performing advanced feature engineering...")
+    df_enh = apply_enhanced_feature_engineering(df)
+    print(f" Feature engineering complete! Shape: {df_enh.shape}")
+
+    print("\nPreprocessing enhanced data...")
+    X_raw, y, feature_names = processor_enh.preprocess_data(df_enh, is_training=True, fit_scaler=False)
+
+    print("\n Splitting enhanced data...")
+    X_train_raw, X_test_raw, y_train, y_test = train_test_split(
+        X_raw, y, test_size=0.2, random_state=42, stratify=y
+    )
+    print(f"- Enhanced training samples: {len(X_train_raw)}")
+    print(f"- Enhanced testing samples: {len(X_test_raw)}")
+
+    X_train_base = processor_enh.fit_transform_features(X_train_raw)
+    X_test_base = processor_enh.transform_features(X_test_raw)
+
+    print("\nCreating polynomial interaction features...")
+    poly = PolynomialFeatures(degree=2, include_bias=False, interaction_only=True)
+    top_feature_indices = list(range(min(10, X_train_base.shape[1])))
+    X_train_poly = poly.fit_transform(X_train_base[:, top_feature_indices])
+    X_test_poly = poly.transform(X_test_base[:, top_feature_indices])
+
+    X_train_enh = np.hstack([X_train_base, X_train_poly])
+    X_test_enh = np.hstack([X_test_base, X_test_poly])
+    print(f" Enhanced feature dimensions -> Train: {X_train_enh.shape}, Test: {X_test_enh.shape}")
+
+    model_enh = EnhancedAttritionPredictor()
+
+    print("\n Training enhanced ensemble (wide & deep + tree models)...")
+    history_enh = model_enh.train_ensemble(
+        X_train_enh,
+        y_train,
+        epochs=epochs,
+        batch_size=batch_size,
+    )
+    if history_enh:
+        print(" Enhanced neural components converged successfully.")
+
+    print("\n Evaluating enhanced model performance...")
+    metrics_enh = model_enh.evaluate(X_test_enh, y_test, optimize_threshold=True)
+
+    print("\n Saving enhanced artifacts...")
+    os.makedirs(save_path, exist_ok=True)
+    model_enh.save_ensemble(save_path)
+    processor_enh.save_preprocessors(save_path, prefix='enh_')
+    joblib.dump(poly, os.path.join(save_path, 'poly_transformer.pkl'))
+    joblib.dump(top_feature_indices, os.path.join(save_path, 'top_features.pkl'))
+    joblib.dump(metrics_enh, os.path.join(save_path, 'enhanced_training_metrics.pkl'))
+
+    return metrics_enh
+
 
 def main():
     parser = argparse.ArgumentParser(description='Train Employee Attrition Prediction Model')
@@ -33,6 +98,7 @@ def main():
                         help='Model version to train (2.0 is enhanced model)')
 
     args = parser.parse_args()
+    metrics_enh = None
 
     print("=" * 60)
     print("EMPLOYEE ATTRITION PREDICTION MODEL TRAINING")
@@ -58,16 +124,19 @@ def main():
 
 
     print("\nPreprocessing data...")
-    X, y, feature_names = processor.preprocess_data(df, is_training=True)
+    X_raw, y, feature_names = processor.preprocess_data(df, is_training=True, fit_scaler=False)
     print(f"Data preprocessed! Features: {len(feature_names)}")
 
 
     print("\n Splitting data...")
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
+    X_train_raw, X_test_raw, y_train, y_test = train_test_split(
+        X_raw, y, test_size=0.2, random_state=42, stratify=y
     )
-    print(f"- Training samples: {len(X_train)}")
-    print(f"- Testing samples: {len(X_test)}")
+    print(f"- Training samples: {len(X_train_raw)}")
+    print(f"- Testing samples: {len(X_test_raw)}")
+
+    X_train = processor.fit_transform_features(X_train_raw)
+    X_test = processor.transform_features(X_test_raw)
 
 
     print("\ Training deep learning model...")
@@ -154,6 +223,17 @@ def main():
         print(f"Traceback: {traceback.format_exc()}")
         print("Using fallback feature importance calculation")
 
+    if metrics_enh:
+        print("\n" + "=" * 60)
+        print("ENHANCED MODEL PERFORMANCE METRICS")
+        print("=" * 60)
+        print(f" Accuracy:  {metrics_enh['accuracy']:.3f}")
+        print(f"AUC-ROC:   {metrics_enh['auc']:.3f}")
+        print(f"Precision: {metrics_enh['classification_report']['1']['precision']:.3f}")
+        print(f"Recall:    {metrics_enh['classification_report']['1']['recall']:.3f}")
+        print(f"F1-Score:  {metrics_enh['classification_report']['1']['f1-score']:.3f}")
+        print(f"Optimal Threshold: {metrics_enh.get('threshold', 0.5):.2f}")
+
 
     print(f"Saving model to {args.save_path}...")
     os.makedirs(args.save_path, exist_ok=True)
@@ -165,12 +245,27 @@ def main():
 
     joblib.dump(metrics, os.path.join(args.save_path, 'training_metrics.pkl'))
 
+    if args.model_version == '2.0':
+        try:
+            metrics_enh = train_enhanced_pipeline(
+                df,
+                epochs=args.epochs,
+                batch_size=args.batch_size,
+                save_path=args.save_path,
+            )
+        except Exception as enh_err:
+            print(f"\nEnhanced training failed: {enh_err}")
+            print("Enhanced artifacts were not generated.")
+
 
     with open(os.path.join(args.save_path, 'model_version.txt'), 'w') as f:
         f.write(f"Model Version: {args.model_version}\n")
         f.write(f"Training Date: {pd.Timestamp.now()}\n")
         f.write(f"Accuracy: {metrics['accuracy']:.3f}\n")
         f.write(f"AUC: {metrics['auc']:.3f}\n")
+        if metrics_enh:
+            f.write(f"Enhanced Accuracy: {metrics_enh['accuracy']:.3f}\n")
+            f.write(f"Enhanced AUC: {metrics_enh['auc']:.3f}\n")
 
     print(" Model and preprocessors saved successfully!")
 
@@ -182,13 +277,15 @@ def main():
     print("  streamlit run app.py")
 
 
-    if args.model_version == '2.0':
+    if metrics_enh:
         print("\n Enhanced Model Features:")
         print("- Wide & Deep architecture for better pattern recognition")
-        print("- Imbalance handling via SMOTE or class weights")
+        print("- Imbalance handling via Borderline-SMOTE or class weights")
         print("- Advanced feature engineering (tenure buckets, income efficiency)")
-        print("- Permutation-based feature importance")
+        print("- Polynomial interaction enrichment on key drivers")
         print("- Automatic threshold optimization for business needs")
+    elif args.model_version == '2.0':
+        print("\n Enhanced model training was requested but did not complete successfully.")
 
 
 if __name__ == "__main__":

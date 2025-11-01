@@ -35,7 +35,7 @@ class HRDataProcessor:
         except Exception as e:
             raise Exception(f"Error loading data: {str(e)}")
 
-    def preprocess_data(self, df, is_training=True):
+    def preprocess_data(self, df, is_training=True, *, fit_scaler=True):
 
 
         df = df.copy()
@@ -121,12 +121,26 @@ class HRDataProcessor:
             X = X[self.feature_columns]
 
 
-        if is_training:
-            X_scaled = self.scaler.fit_transform(X)
-        else:
-            X_scaled = self.scaler.transform(X)
+        feature_list = X.columns.tolist()
 
-        return X_scaled, y, X.columns.tolist()
+        if fit_scaler:
+            if is_training:
+                X_processed = self.scaler.fit_transform(X)
+            else:
+                X_processed = self.scaler.transform(X)
+        else:
+            X_processed = X.to_numpy(dtype=float, copy=False)
+
+        return X_processed, y, feature_list
+
+    def fit_feature_scaler(self, X):
+        self.scaler.fit(X)
+
+    def transform_features(self, X):
+        return self.scaler.transform(X)
+
+    def fit_transform_features(self, X):
+        return self.scaler.fit_transform(X)
 
     def create_feature_importance_df(self, feature_names, importance_scores):
         importance_df = pd.DataFrame({

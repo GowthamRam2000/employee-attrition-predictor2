@@ -183,9 +183,10 @@ class AttritionPredictor:
     def predict_proba(self, X):
         return self.predict(X)
 
-    def predict_classes(self, X, threshold=0.5):
+    def predict_classes(self, X, threshold=None):
         probs = self.predict_proba(X).flatten()
-        return (probs > threshold).astype(int)
+        threshold_to_use = self.best_threshold if threshold is None else threshold
+        return (probs > threshold_to_use).astype(int)
 
     def evaluate(self, X_test, y_test):
         y_pred_proba = self.predict_proba(X_test).flatten()
@@ -246,13 +247,17 @@ class AttritionPredictor:
             raise ValueError("No model to save.")
 
         torch.save(self.model.state_dict(), os.path.join(path, "attrition_model.pt"))
-        metadata = {"input_dim": self.input_dim}
+        metadata = {
+            "input_dim": self.input_dim,
+            "best_threshold": float(self.best_threshold),
+        }
         joblib.dump(metadata, os.path.join(path, "model_metadata.pkl"))
 
     def load_model(self, path="models/"):
         metadata_path = os.path.join(path, "model_metadata.pkl")
         meta = joblib.load(metadata_path)
         self.input_dim = meta["input_dim"]
+        self.best_threshold = float(meta.get("best_threshold", 0.5))
         self.build_model(self.input_dim)
 
         model_path = os.path.join(path, "attrition_model.pt")

@@ -1,93 +1,96 @@
 ## Employee Attrition Predictor
 
-This project provides an end-to-end workflow for training deep-learning and ensemble models that predict employee attrition, along with a Streamlit dashboard for interactive analytics and scoring.
+Interactive Streamlit experience and training pipeline for forecasting employee attrition using deep neural networks plus an extended wide & deep ensemble.
 
 ---
 
+### 1. Environment Setup
 - Python 3.9 or 3.10 (3.9.17+ recommended)
+- Install deps:
+  ```bash
+  python -m venv .venv
+  source .venv/bin/activate
 
+  pip install --upgrade pip
+  pip install -r requirements.txt
+  ```
 
 ---
 
-### 2. Setup
-```bash
-python -m venv .venv
-source .venv/bin/activate                      
-
-pip install --upgrade pip
-pip install -r requirements.txt
-```
+### 2. Train & Export Artifacts
+Run the unified CLI once you have the IBM HR dataset locally:
 ```bash
 python train_model.py \
   --data WA_Fn-UseC_-HR-Employee-Attrition.csv \
-  --epochs 100 \
+  --epochs 120 \
   --batch_size 32 \
-  --use_smote
+  --use_smote \
+  --model_version 2.0
 ```
-Artifacts saved to `models/`:
-- `attrition_model.pt` — PyTorch weights
-- `model_metadata.pkl`, `training_metrics.pkl`
-- `scaler.pkl`, `label_encoders.pkl`, `feature_columns.pkl`, `feature_defaults.pkl`
 
-```bash
-python train_enhanced.py
-```
-Outputs (in addition to baseline preprocessors):
-- `enhanced_deep_model.pt`, `enhanced_wide_model.pt`
-- `xgboost_model.pkl`, `rf_model.pkl`, `gb_model.pkl`
-- `enhanced_metadata.pkl`, `enhanced_training_metrics.pkl`
-- `poly_transformer.pkl`, `top_features.pkl`
+This command first trains the baseline PyTorch network and, when `--model_version 2.0` is supplied, also fits the enhanced wide & deep ensemble with tree models. Artifacts are written to `models/`:
 
-> The script expects XGBoost to be available. If installation fails, fix the environment and rerun.
+- Baseline: `attrition_model.pt`, `model_metadata.pkl`, `training_metrics.pkl`
+- Preprocessing: `scaler.pkl`, `label_encoders.pkl`, `feature_columns.pkl`, `feature_defaults.pkl`
+- Enhanced (2.0): `enhanced_deep_model.pt`, `enhanced_wide_model.pt`, `xgboost_model.pkl`, `rf_model.pkl`, `gb_model.pkl`, `enhanced_metadata.pkl`, `enhanced_training_metrics.pkl`, `poly_transformer.pkl`, `top_features.pkl`
+
+> Re-run the CLI whenever you refresh data or hyperparameters; the Streamlit app automatically loads the freshest artifacts at startup.
 
 ---
 
-### 4. Launch the Streamlit Dashboard
+### 3. Launch Streamlit Locally
 ```bash
 streamlit run app.py
 ```
-Key features:
-- **Dashboard:** KPIs, confusion matrix, ROC curves, attrition summary
-- **Train Model:** Upload data and retrain directly from the UI
-- **Make Predictions:** Single-employee scoring with what-if analysis
-- **Batch Scoring:** Upload CSV/XLSX for bulk inference plus business-cost calculator
-- **Analytics & Model Performance:** Feature importance, cohort summaries, saved metric review
+
+Pages include:
+- **Dashboard** with KPIs, ROC, confusion matrix, attrition summary
+- **Train Model** to retrain using uploaded data
+- **Make Predictions** for single-employee scoring & what-if analysis
+- **Batch Scoring** for CSV/XLSX uploads plus business cost calculator
+- **Analytics / Model Performance** for feature insights and stored metrics
 
 ---
 
-### 5. Using the Models Programmatically
+### 4. Deploying to Streamlit Cloud (or similar)
+1. Run `train_model.py` locally so the `models/` directory contains all artifacts.
+2. Commit/push the repo **including the `models/` folder** or upload it alongside the code.
+3. Configure the deployment command: `streamlit run app.py`.
+4. Optional: set environment variables if using non-default artifact paths—otherwise the defaults work.
+
+On boot the app checks for required files and warns if training needs to be rerun.
+
+---
+
+### 5. Programmatic Usage
 ```python
 from src.models.attrition_model import AttritionPredictor
 from src.utils.data_processor import HRDataProcessor
 
 processor = HRDataProcessor()
-processor.load_preprocessors('models/')
+processor.load_preprocessors("models/")
 
 model = AttritionPredictor()
-model.load_model('models/')
+model.load_model("models/")
 
 X, _, _ = processor.preprocess_data(your_dataframe, is_training=False)
-probabilities = model.predict_proba(X)
+probs = model.predict_proba(X)
+classes = model.predict_classes(X)  # uses the calibrated threshold by default
 ```
 
-For the enhanced ensemble:
+Enhanced ensemble:
 ```python
 from src.models.enhanced_attrition_model import EnhancedAttritionPredictor
 
 ensemble = EnhancedAttritionPredictor()
-ensemble.load_ensemble('models/')
+ensemble.load_ensemble("models/")
 scores = ensemble.predict_proba(X)
 ```
 
 ---
 
 ### 6. Troubleshooting
-- **PyTorch segmentation fault:** Make sure the current Python interpreter matches the platform torch wheel (run `python -c "import torch; print(torch.__version__)"`). Reinstall torch manually if needed.
-- **XGBoost import errors:** `pip install xgboost==2.0.3` (or brew install libomp on macOS if OpenMP is missing).
-- **Streamlit fails to load models:** Ensure training scripts have been executed so `.pt` artifacts exist. The app warns if it only finds legacy `.h5` files.
-- **Unknown categorical values at inference time:** The processor maps unseen categories to `-1`; update label encoders by retraining when new labels appear in production data.
-
-
-
-
-
+- **PyTorch wheel issues** – verify Python/torch compatibility (`python -c "import torch; print(torch.__version__)"`), reinstall if needed.
+- **XGBoost import failures** – `pip install xgboost==2.0.3` (macOS may also need `brew install libomp`).
+- **Missing artifacts in Streamlit** – rerun `train_model.py` so `.pt`/`.pkl` files exist in `models/`.
+- **Unseen categorical levels** – the processor maps them to `-1`; retrain to fully support new categories.

@@ -517,7 +517,7 @@ if page == "Dashboard":
                 </div>
                 """.format(metrics['classification_report']['1']['recall'] * 100), unsafe_allow_html=True)
 
-            st.markdown("### 📈 Model Performance Visualization")
+            st.markdown("###  Model Performance Visualization")
 
             col1, col2 = st.columns(2)
 
@@ -608,7 +608,7 @@ elif page == "Train Model":
 
         st.success(f" Dataset loaded successfully! Shape: {df.shape}")
 
-        with st.expander("📋 Data Preview"):
+        with st.expander(" Data Preview"):
             st.dataframe(df.head())
 
         col1, col2 = st.columns(2)
@@ -631,13 +631,16 @@ elif page == "Train Model":
         if st.button(btn_label, type="primary"):
             with st.spinner(" Training deep learning model... This may take a few minutes."):
 
-                X, y, feature_names = processor.preprocess_data(df, is_training=True)
+                X_raw, y, feature_names = processor.preprocess_data(df, is_training=True, fit_scaler=False)
 
                 from sklearn.model_selection import train_test_split
 
-                X_train, X_test, y_train, y_test = train_test_split(
-                    X, y, test_size=0.2, random_state=42, stratify=y
+                X_train_raw, X_test_raw, y_train, y_test = train_test_split(
+                    X_raw, y, test_size=0.2, random_state=42, stratify=y
                 )
+
+                X_train = processor.fit_transform_features(X_train_raw)
+                X_test = processor.transform_features(X_test_raw)
 
                 model = AttritionPredictor()
                 history = model.train(
@@ -661,7 +664,7 @@ elif page == "Train Model":
 
                 st.success(" Model trained successfully!")
 
-                st.markdown("### 📊 Training Results")
+                st.markdown("###  Training Results")
 
                 col1, col2, col3 = st.columns(3)
                 with col1:
